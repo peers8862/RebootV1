@@ -1,0 +1,41 @@
+name: Create Jekyll Page from Issue
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  create_page:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Extract Issue Data
+        id: extract
+        run: |
+          echo "TITLE=$(echo '${{ github.event.issue.title }}' | sed 's/New Page: //g')" >> $GITHUB_ENV
+          echo "CONTENT=$(echo '${{ github.event.issue.body }}')" >> $GITHUB_ENV
+          echo "AUTHOR=$(echo '${{ github.event.issue.user.login }}')" >> $GITHUB_ENV
+          echo "FILENAME=$(date +'%Y-%m-%d')-$(echo '${{ github.event.issue.title }}' | tr ' ' '-' | tr '[:upper:]' '[:lower:]').md" >> $GITHUB_ENV
+
+      - name: Create New Page
+        run: |
+          cat <<EOF > _posts/$FILENAME
+          ---
+          layout: post
+          title: "${TITLE}"
+          author: "${AUTHOR}"
+          date: $(date +'%Y-%m-%d')
+          ---
+          ${CONTENT}
+          EOF
+
+      - name: Commit and Push
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add _posts/
+          git commit -m "Auto-generated post: ${TITLE}" || exit 0
+          git push
