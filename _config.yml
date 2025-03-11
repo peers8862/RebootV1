@@ -16,17 +16,18 @@
 title: reboot.chat
 email: reboot.chat@gmail.com
 description: >- # this means to ignore newlines until "baseurl:"
- New approaches to known problems.
+ New approaches to problems.
 baseurl: "" # the subpath of your site, e.g. /blog
 url: "https://reboot.chat" # the base hostname & protocol for your site, e.g. http://example.com
 twitter_username: 
 github_username:  
 
+github: [metadata]
+
 # Build settings
 markdown: kramdown
-remote_theme: tactile
+theme: jekyll-theme-tactile
 plugins:
-  - jekyll-remote-theme
   - jekyll-feed
 
 # Exclude from processing.
