@@ -13,10 +13,11 @@
 # you will see them accessed via {{ site.title }}, {{ site.email }}, and so on.
 # You can create any custom variable you would like, and they will be accessible
 # in the templates via {{ site.myvariable }}.
-title: reboot.chat
+title: reboot
 email: reboot.chat@gmail.com
 description: >- # this means to ignore newlines until "baseurl:"
- New approaches to problems.
+ What's the issue?<br><br>
+ <a href="https://github.com/peers8862/RebootV1/issues/new?template=new-page.yml" class="button">NEW PAGE</a>
 baseurl: "" # the subpath of your site, e.g. /blog
 url: "https://reboot.chat" # the base hostname & protocol for your site, e.g. http://example.com
 twitter_username: 
@@ -26,7 +27,7 @@ github: [metadata]
 
 # Build settings
 markdown: kramdown
-theme: jekyll-theme-tactile
+theme: jekyll-theme-minima
 plugins:
   - jekyll-feed
 
