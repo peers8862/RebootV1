@@ -15,21 +15,22 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-        
+
       - name: Extract form data and create page
         id: extract-data
         run: |
           # Extract the title and sanitize it
           TITLE=$(echo "${{ github.event.issue.title }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
 
-          # Extracting form data safely
-          BODY_JSON=$(jq -r '.issue.body' <<< '${{ toJSON(github.event) }}')
+          # Convert GitHub Issue Body into a JSON-compatible format
+          BODY_JSON=$(echo '${{ github.event.issue.body }}' | jq -Rs '.')
 
-          PAGE_TITLE=$(echo "$BODY_JSON" | grep -A1 'Page Title' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
-          PAGE_LAYOUT=$(echo "$BODY_JSON" | grep -A1 'Layout' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
-          PAGE_CONTENT=$(echo "$BODY_JSON" | grep -A1 'Page Content' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
+          # Extract fields properly
+          PAGE_TITLE=$(echo "$BODY_JSON" | jq -r 'split("\n") | map(select(test("^Page Title: "))) | .[0] | sub("^Page Title: "; "")')
+          PAGE_LAYOUT=$(echo "$BODY_JSON" | jq -r 'split("\n") | map(select(test("^Layout: "))) | .[0] | sub("^Layout: "; "")')
+          PAGE_CONTENT=$(echo "$BODY_JSON" | jq -r 'split("\n") | map(select(test("^Page Content: "))) | .[0] | sub("^Page Content: "; "")')
 
-          # Default to 'page' if layout is missing
+          # Default layout if missing
           [ -z "$PAGE_LAYOUT" ] && PAGE_LAYOUT="page"
 
           # Define filename and permalink
@@ -41,16 +42,16 @@ jobs:
             URL_PATH="${TITLE}"
           fi
 
-          # Output variables
+          # Output variables for later steps
           echo "filename=$FILENAME" >> $GITHUB_ENV
           echo "url_path=$URL_PATH" >> $GITHUB_ENV
           echo "page_title=$PAGE_TITLE" >> $GITHUB_ENV
           echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_ENV
 
-          # Ensure the directory exists
+          # Ensure directory exists
           mkdir -p $(dirname "$FILENAME")
 
-          # Create the markdown file
+          # Create markdown file
           cat <<EOF > "$FILENAME"
           ---
           layout: $PAGE_LAYOUT
