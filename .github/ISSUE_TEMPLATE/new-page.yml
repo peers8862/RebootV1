@@ -13,7 +13,7 @@ body:
     attributes:
       label: Page Title
       description: The title of your page
-      placeholder: My Awesome Page
+      placeholder: Reboot ID 
     validations:
       required: true
   
@@ -26,7 +26,6 @@ body:
         - page
         - post
         - default
-      default: "page"
     validations:
       required: true
   
