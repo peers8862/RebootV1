@@ -30,115 +30,87 @@ jobs:
           echo "First 10 lines of issue body:"
           head -n 10 issue_body.txt
       
-      - name: Extract form data and create page
-        id: extract-data
+        - name: Extract form data
+        id: extract
         run: |
-          # Extract title and sanitize it
-          TITLE=$(echo "${{ github.event.issue.title }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
-          
-          # Extract page title more reliably
-          PAGE_TITLE=$(sed -n '/### Page Title/,/###/p' issue_body.txt | grep -v '###' | sed '1d;$d' | sed 's/^[ \t]*//;s/[ \t]*$//')
-          
-          # If that didn't work, try an alternative approach
-          if [ -z "$PAGE_TITLE" ]; then
-            PAGE_TITLE=$(grep -A1 '### Page Title' issue_body.txt | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
-          fi
-          
-          # Extract layout
-          PAGE_LAYOUT=$(sed -n '/### Layout/,/###/p' issue_body.txt | grep -v '###' | sed '1d;$d' | sed 's/^[ \t]*//;s/[ \t]*$//')
-          
-          # If that didn't work, try an alternative approach
-          if [ -z "$PAGE_LAYOUT" ]; then
-            PAGE_LAYOUT=$(grep -A1 '### Layout' issue_body.txt | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
-          fi
-          
-          # Extract content - need to handle multi-line content
-          PAGE_CONTENT=$(sed -n '/### Page Content/,$/p' issue_body.txt | sed '1d' | sed 's/^[ \t]*//;s/[ \t]*$//')
-          
-          # Default to 'page' layout if not specified
-          [ -z "$PAGE_LAYOUT" ] && PAGE_LAYOUT="page"
-          
-          # If content is empty, alert
-          if [ -z "$PAGE_CONTENT" ]; then
-            echo "Warning: Could not extract page content"
-            PAGE_CONTENT="<!-- Content not properly extracted -->"
-          fi
-          
-          # Debug extracted values
-          echo "Extracted Page Title: '$PAGE_TITLE'"
-          echo "Extracted Layout: '$PAGE_LAYOUT'"
-          echo "Extracted Content (first 100 chars): '$(echo "$PAGE_CONTENT" | head -c 100)...'"
-          
+          BODY="${{ github.event.issue.body }}"
+
+          PAGE_TITLE=$(echo "$BODY" | awk '/### Page Title/{getline; print}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+          PAGE_LAYOUT=$(echo "$BODY" | awk '/### Layout/{getline; print}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+          PAGE_CONTENT=$(echo "$BODY" | awk '/### Page Content/{flag=1; next} /^###/{flag=0} flag')
+
+          # Convert title into a filename-safe slug
+          SAFE_TITLE=$(echo "$PAGE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g')
+
           # Define filename and permalink
           if [[ "$PAGE_LAYOUT" == "post" ]]; then
-            FILENAME="_posts/$(date +%Y-%m-%d)-${TITLE}.md"
-            URL_PATH="$(date +%Y/%m/%d)/${TITLE}"
+            FILENAME="_posts/$(date +%Y-%m-%d)-${SAFE_TITLE}.md"
+            URL_PATH="$(date +%Y/%m/%d)/${SAFE_TITLE}"
           else
-            FILENAME="_pages/${TITLE}.md"
-            URL_PATH="${TITLE}"
+            FILENAME="_pages/${SAFE_TITLE}.md"
+            URL_PATH="${SAFE_TITLE}"
           fi
-          
-          # Create directory if needed
-          mkdir -p $(dirname "$FILENAME")
-          
-          # Properly escape the page title for YAML
-          YAML_ESCAPED_TITLE=$(echo "$PAGE_TITLE" | sed 's/"/\\"/g')
-          
-          # Output variables for later use
-          echo "filename=$FILENAME" >> $GITHUB_ENV
-          echo "url_path=$URL_PATH" >> $GITHUB_ENV
-          echo "page_title=$YAML_ESCAPED_TITLE" >> $GITHUB_ENV
-          echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_ENV
-          
-          # Save content to a separate file to avoid shell escaping issues
-          echo "$PAGE_CONTENT" > page_content.txt
-      
-      - name: Create page file
-        run: |
-          # Create the frontmatter with proper YAML escaping
-          cat > "${{ env.filename }}" << EOF
----
-layout: ${{ env.page_layout }}
-title: "${{ env.page_title }}"
-date: $(date +"%Y-%m-%d %H:%M:%S %z")
-permalink: /${{ env.url_path }}/
-nav_exclude: true
----
 
-EOF
+          # Store environment variables
+          echo "PAGE_TITLE=$PAGE_TITLE" >> $GITHUB_ENV
+          echo "PAGE_LAYOUT=$PAGE_LAYOUT" >> $GITHUB_ENV
+          echo "PAGE_CONTENT<<EOF" >> $GITHUB_ENV
+          echo "$PAGE_CONTENT" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          echo "FILENAME=$FILENAME" >> $GITHUB_ENV
+          echo "URL_PATH=$URL_PATH" >> $GITHUB_ENV
+
           
-          # Append content
-          cat page_content.txt >> "${{ env.filename }}"
+            # Save content to a separate file to avoid shell escaping issues
+            echo "$PAGE_CONTENT" > page_content.txt
+        
+        - name: Create page file
+        run: |
+          # Create the frontmatter
+          cat > "${{ env.FILENAME }}" <<- EOF
+          ---
+          layout: ${{ env.PAGE_LAYOUT }}
+          title: "${{ env.PAGE_TITLE }}"
+          date: $(date +"%Y-%m-%d %H:%M:%S %z")
+          permalink: /${{ env.URL_PATH }}/
+          nav_exclude: true
+          ---
           
+          EOF
+
+          # Append content safely
+          echo "${{ env.PAGE_CONTENT }}" >> "${{ env.FILENAME }}"
+
           # Show file content for debugging
           echo "----------- Final file content -----------"
-          cat "${{ env.filename }}"
+          cat "${{ env.FILENAME }}"
           echo "-----------------------------------------"
-      
-      - name: Commit and push changes
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add "${{ env.filename }}"
-          git commit -m "Add new page from issue #${{ github.event.issue.number }}"
-          git push
-      
-      - name: Comment on the issue
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const urlPath = "${{ env.url_path }}";
-            const siteUrl = `https://www.reboot.chat/${urlPath}/`;
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `✅ Page created successfully!\n\nYour new page will be available at: [${siteUrl}](${siteUrl})\n\nNote: It may take a few minutes for the site to build and deploy the changes.`
-            });
-            await github.rest.issues.update({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'closed'
-            });
+
+        
+        - name: Commit and push changes
+          run: |
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add "${{ env.filename }}"
+            git commit -m "Add new page from issue #${{ github.event.issue.number }}"
+            git push
+        
+        - name: Comment on the issue
+          uses: actions/github-script@v6
+          with:
+            github-token: ${{ secrets.GITHUB_TOKEN }}
+            script: |
+              const urlPath = "${{ env.url_path }}";
+              const siteUrl = `https://www.reboot.chat/${urlPath}/`;
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `✅ Page created successfully!\n\nYour new page will be available at: [${siteUrl}](${siteUrl})\n\nNote: It may take a few minutes for the site to build and deploy the changes.`
+              });
+              await github.rest.issues.update({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'closed'
+              });
