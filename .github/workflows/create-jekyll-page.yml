@@ -11,37 +11,64 @@ jobs:
     permissions:
       contents: write
       issues: write
-
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-
+      
       - name: Debug issue data
         run: |
           echo "Issue Title: ${{ github.event.issue.title }}"
-          echo "Issue Body: ${{ github.event.issue.body }}"
-
+          echo "Issue Body Length: $(echo '${{ github.event.issue.body }}' | wc -c) characters"
+      
+      - name: Save issue body to file
+        run: |
+          # Save the issue body to a file to avoid shell escaping issues
+          echo '${{ github.event.issue.body }}' > issue_body.txt
+          
+          # Show the first 10 lines for debugging
+          echo "First 10 lines of issue body:"
+          head -n 10 issue_body.txt
+      
       - name: Extract form data and create page
         id: extract-data
         run: |
           # Extract title and sanitize it
           TITLE=$(echo "${{ github.event.issue.title }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
-
-          # Extract raw issue body and handle empty cases
-          BODY="${{ github.event.issue.body }}"
-          if [[ -z "$BODY" || "$BODY" == "null" ]]; then
-            echo "Error: Issue body is empty or null."
-            exit 1
+          
+          # Extract page title more reliably
+          PAGE_TITLE=$(sed -n '/### Page Title/,/###/p' issue_body.txt | grep -v '###' | sed '1d;$d' | sed 's/^[ \t]*//;s/[ \t]*$//')
+          
+          # If that didn't work, try an alternative approach
+          if [ -z "$PAGE_TITLE" ]; then
+            PAGE_TITLE=$(grep -A1 '### Page Title' issue_body.txt | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
           fi
-
-          # Extract key fields from issue body
-          PAGE_TITLE=$(echo "$BODY" | grep -A1 'Page Title' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
-          PAGE_LAYOUT=$(echo "$BODY" | grep -A1 'Layout' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
-          PAGE_CONTENT=$(echo "$BODY" | grep -A1 'Page Content' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
-
+          
+          # Extract layout
+          PAGE_LAYOUT=$(sed -n '/### Layout/,/###/p' issue_body.txt | grep -v '###' | sed '1d;$d' | sed 's/^[ \t]*//;s/[ \t]*$//')
+          
+          # If that didn't work, try an alternative approach
+          if [ -z "$PAGE_LAYOUT" ]; then
+            PAGE_LAYOUT=$(grep -A1 '### Layout' issue_body.txt | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
+          fi
+          
+          # Extract content - need to handle multi-line content
+          PAGE_CONTENT=$(sed -n '/### Page Content/,$/p' issue_body.txt | sed '1d' | sed 's/^[ \t]*//;s/[ \t]*$//')
+          
           # Default to 'page' layout if not specified
           [ -z "$PAGE_LAYOUT" ] && PAGE_LAYOUT="page"
-
+          
+          # If content is empty, alert
+          if [ -z "$PAGE_CONTENT" ]; then
+            echo "Warning: Could not extract page content"
+            PAGE_CONTENT="<!-- Content not properly extracted -->"
+          fi
+          
+          # Debug extracted values
+          echo "Extracted Page Title: '$PAGE_TITLE'"
+          echo "Extracted Layout: '$PAGE_LAYOUT'"
+          echo "Extracted Content (first 100 chars): '$(echo "$PAGE_CONTENT" | head -c 100)...'"
+          
           # Define filename and permalink
           if [[ "$PAGE_LAYOUT" == "post" ]]; then
             FILENAME="_posts/$(date +%Y-%m-%d)-${TITLE}.md"
@@ -50,31 +77,41 @@ jobs:
             FILENAME="_pages/${TITLE}.md"
             URL_PATH="${TITLE}"
           fi
-
+          
+          # Create directory if needed
+          mkdir -p $(dirname "$FILENAME")
+          
           # Output variables for later use
           echo "filename=$FILENAME" >> $GITHUB_ENV
           echo "url_path=$URL_PATH" >> $GITHUB_ENV
           echo "page_title=$PAGE_TITLE" >> $GITHUB_ENV
           echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_ENV
+          
+          # Save content to a separate file to avoid shell escaping issues
+          echo "$PAGE_CONTENT" > page_content.txt
+      
+      - name: Create page file
+        run: |
+          # Create the frontmatter
+          cat > "${{ env.filename }}" << EOF
+---
+layout: ${{ env.page_layout }}
+title: "${{ env.page_title }}"
+date: $(date +"%Y-%m-%d %H:%M:%S %z")
+permalink: /${{ env.url_path }}/
+nav_exclude: true
+---
 
-          # Ensure the directory exists
-          mkdir -p $(dirname "$FILENAME")
-
-          # Create markdown file
-          cat <<EOF > "$FILENAME"
-          ---
-          layout: $PAGE_LAYOUT
-          title: "$PAGE_TITLE"
-          date: $(date +"%Y-%m-%d %H:%M:%S %z")
-          permalink: /$URL_PATH/
-          nav_exclude: true
-          ---
-          $PAGE_CONTENT
-          EOF
-
+EOF
+          
+          # Append content
+          cat page_content.txt >> "${{ env.filename }}"
+          
           # Show file content for debugging
-          cat "$FILENAME"
-
+          echo "----------- Final file content -----------"
+          cat "${{ env.filename }}"
+          echo "-----------------------------------------"
+      
       - name: Commit and push changes
         run: |
           git config --local user.email "action@github.com"
@@ -82,7 +119,7 @@ jobs:
           git add "${{ env.filename }}"
           git commit -m "Add new page from issue #${{ github.event.issue.number }}"
           git push
-
+      
       - name: Comment on the issue
         uses: actions/github-script@v6
         with:
@@ -90,14 +127,12 @@ jobs:
           script: |
             const urlPath = "${{ env.url_path }}";
             const siteUrl = `https://www.reboot.chat/${urlPath}/`;
-
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: `✅ Page created successfully!\n\nYour new page will be available at: [${siteUrl}](${siteUrl})\n\nNote: It may take a few minutes for the site to build and deploy the changes.`
             });
-
             await github.rest.issues.update({
               issue_number: context.issue.number,
               owner: context.repo.owner,
