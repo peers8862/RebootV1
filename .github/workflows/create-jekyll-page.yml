@@ -1,41 +1,98 @@
-name: Create Jekyll Page from Issue
+name: Create New Reboot
 
 on:
   issues:
-    types: [opened]
+    types: [opened, edited]
 
 jobs:
-  create_page:
+  create-page:
+    if: ${{ contains(github.event.issue.labels.*.name, 'new-page') }}
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
+      issues: write
+    
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Extract Issue Data
-        id: extract
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Extract form data
+        id: extract-data
         run: |
-          echo "TITLE=$(echo '${{ github.event.issue.title }}' | sed 's/New Page: //g')" >> $GITHUB_ENV
-          echo "CONTENT=$(echo '${{ github.event.issue.body }}')" >> $GITHUB_ENV
-          echo "AUTHOR=$(echo '${{ github.event.issue.user.login }}')" >> $GITHUB_ENV
-          echo "FILENAME=$(date +'%Y-%m-%d')-$(echo '${{ github.event.issue.title }}' | tr ' ' '-' | tr '[:upper:]' '[:lower:]').md" >> $GITHUB_ENV
-
-      - name: Create New Page
+          TITLE=$(echo "${{ github.event.issue.title }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
+          
+          # Store issue body in a file to avoid quote escaping issues
+          echo '${{ github.event.issue.body }}' > issue_body.txt
+          
+          # Extract fields from issue body
+          PAGE_TITLE=$(grep -A1 "### Page Title" issue_body.txt | tail -n1 | sed 's/^[ \t]*//')
+          PAGE_CONTENT=$(grep -A1 "### Page Content" issue_body.txt | tail -n1 | sed 's/^[ \t]*//')
+          PAGE_LAYOUT=$(grep -A1 "### Layout" issue_body.txt | tail -n1 | sed 's/^[ \t]*//')
+          
+          # Create filename with date prefix for posts or simple name for pages
+          if [[ "$PAGE_LAYOUT" == "post" ]]; then
+            FILENAME="_posts/$(date +%Y-%m-%d)-${TITLE}.md"
+            URL_PATH="$(date +%Y/%m/%d)/${TITLE}.html"
+          else
+            FILENAME="_pages/${TITLE}.md"
+            URL_PATH="${TITLE}.html"
+            mkdir -p _pages
+          fi
+          
+          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+          echo "url_path=$URL_PATH" >> $GITHUB_OUTPUT
+          echo "page_title=$PAGE_TITLE" >> $GITHUB_OUTPUT
+          echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_OUTPUT
+          
+          # Write page content to a file to avoid quoting issues
+          echo "$PAGE_CONTENT" > page_content.txt
+      
+      - name: Create page file
         run: |
-          cat <<EOF > _posts/$FILENAME
-          ---
-          layout: post
-          title: "${TITLE}"
-          author: "${AUTHOR}"
-          date: $(date +'%Y-%m-%d')
-          ---
-          ${CONTENT}
-          EOF
-
-      - name: Commit and Push
+          # Create frontmatter
+          echo "---" > ${{ steps.extract-data.outputs.filename }}
+          echo "layout: ${{ steps.extract-data.outputs.page_layout }}" >> ${{ steps.extract-data.outputs.filename }}
+          echo "title: \"${{ steps.extract-data.outputs.page_title }}\"" >> ${{ steps.extract-data.outputs.filename }}
+          echo "date: $(date +"%Y-%m-%d %H:%M:%S %z")" >> ${{ steps.extract-data.outputs.filename }}
+          echo "permalink: /${{ steps.extract-data.outputs.url_path }}" >> ${{ steps.extract-data.outputs.filename }}
+          echo "---" >> ${{ steps.extract-data.outputs.filename }}
+          echo "" >> ${{ steps.extract-data.outputs.filename }}
+          
+          # Append content
+          cat page_content.txt >> ${{ steps.extract-data.outputs.filename }}
+      
+      - name: Commit and push
         run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git add _posts/
-          git commit -m "Auto-generated post: ${TITLE}" || exit 0
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add ${{ steps.extract-data.outputs.filename }}
+          git commit -m "Add new page from issue #${{ github.event.issue.number }}"
           git push
+      
+      - name: Comment on issue
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const urlPath = "${{ steps.extract-data.outputs.url_path }}";
+            
+            // Use custom domain
+            const siteUrl = `https://www.reboot.chat/${urlPath}`;
+            
+            // Add a comment with the link to the page
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `✅ Page created successfully!\n\n` +
+                    `Your new page will be available at: [${siteUrl}](${siteUrl})\n\n` +
+                    `Note: It may take a few minutes for the site to build and deploy the changes.`
+            });
+            
+            // Close the issue
+            await github.rest.issues.update({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed'
+            });
