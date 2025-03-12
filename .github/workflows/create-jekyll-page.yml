@@ -1,54 +1,105 @@
-- name: Extract form data and create page
-  id: extract-data
-  run: |
-    # Extract issue title and sanitize it
-    TITLE=$(echo "${{ github.event.issue.title }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
+name: Create Jekyll Page from Issue Form
 
-    # Extract raw issue body
-    BODY="${{ github.event.issue.body }}"
+on:
+  issues:
+    types: [opened, edited]
 
-    # Ensure BODY is not null
-    if [[ -z "$BODY" || "$BODY" == "null" ]]; then
-      echo "Error: Issue body is empty or null."
-      exit 1
-    fi
+jobs:
+  create-page:
+    if: contains(github.event.issue.labels.*.name, 'new-page')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
 
-    # Extract key fields using grep and sed
-    PAGE_TITLE=$(echo "$BODY" | grep -A1 'Page Title' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
-    PAGE_LAYOUT=$(echo "$BODY" | grep -A1 'Layout' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
-    PAGE_CONTENT=$(echo "$BODY" | grep -A1 'Page Content' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    # Default to 'page' layout if none is provided
-    [ -z "$PAGE_LAYOUT" ] && PAGE_LAYOUT="page"
+      - name: Debug issue data
+        run: |
+          echo "Issue Title: ${{ github.event.issue.title }}"
+          echo "Issue Body: ${{ github.event.issue.body }}"
 
-    # Define filename and permalink
-    if [[ "$PAGE_LAYOUT" == "post" ]]; then
-      FILENAME="_posts/$(date +%Y-%m-%d)-${TITLE}.md"
-      URL_PATH="$(date +%Y/%m/%d)/${TITLE}"
-    else
-      FILENAME="_pages/${TITLE}.md"
-      URL_PATH="${TITLE}"
-    fi
+      - name: Extract form data and create page
+        id: extract-data
+        run: |
+          # Extract title and sanitize it
+          TITLE=$(echo "${{ github.event.issue.title }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
 
-    # Output variables for later use
-    echo "filename=$FILENAME" >> $GITHUB_ENV
-    echo "url_path=$URL_PATH" >> $GITHUB_ENV
-    echo "page_title=$PAGE_TITLE" >> $GITHUB_ENV
-    echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_ENV
+          # Extract raw issue body and handle empty cases
+          BODY="${{ github.event.issue.body }}"
+          if [[ -z "$BODY" || "$BODY" == "null" ]]; then
+            echo "Error: Issue body is empty or null."
+            exit 1
+          fi
 
-    # Ensure directory exists
-    mkdir -p $(dirname "$FILENAME")
+          # Extract key fields from issue body
+          PAGE_TITLE=$(echo "$BODY" | grep -A1 'Page Title' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
+          PAGE_LAYOUT=$(echo "$BODY" | grep -A1 'Layout' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
+          PAGE_CONTENT=$(echo "$BODY" | grep -A1 'Page Content' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-    # Create markdown file
-    cat <<EOF > "$FILENAME"
-    ---
-    layout: $PAGE_LAYOUT
-    title: "$PAGE_TITLE"
-    date: $(date +"%Y-%m-%d %H:%M:%S %z")
-    permalink: /$URL_PATH/
-    ---
-    $PAGE_CONTENT
-    EOF
+          # Default to 'page' layout if not specified
+          [ -z "$PAGE_LAYOUT" ] && PAGE_LAYOUT="page"
 
-    # Show file content for debugging
-    cat "$FILENAME"
+          # Define filename and permalink
+          if [[ "$PAGE_LAYOUT" == "post" ]]; then
+            FILENAME="_posts/$(date +%Y-%m-%d)-${TITLE}.md"
+            URL_PATH="$(date +%Y/%m/%d)/${TITLE}"
+          else
+            FILENAME="_pages/${TITLE}.md"
+            URL_PATH="${TITLE}"
+          fi
+
+          # Output variables for later use
+          echo "filename=$FILENAME" >> $GITHUB_ENV
+          echo "url_path=$URL_PATH" >> $GITHUB_ENV
+          echo "page_title=$PAGE_TITLE" >> $GITHUB_ENV
+          echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_ENV
+
+          # Ensure the directory exists
+          mkdir -p $(dirname "$FILENAME")
+
+          # Create markdown file
+          cat <<EOF > "$FILENAME"
+          ---
+          layout: $PAGE_LAYOUT
+          title: "$PAGE_TITLE"
+          date: $(date +"%Y-%m-%d %H:%M:%S %z")
+          permalink: /$URL_PATH/
+          ---
+          $PAGE_CONTENT
+          EOF
+
+          # Show file content for debugging
+          cat "$FILENAME"
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add "${{ env.filename }}"
+          git commit -m "Add new page from issue #${{ github.event.issue.number }}"
+          git push
+
+      - name: Comment on the issue
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const urlPath = "${{ env.url_path }}";
+            const siteUrl = `https://www.reboot.chat/${urlPath}/`;
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `✅ Page created successfully!\n\nYour new page will be available at: [${siteUrl}](${siteUrl})\n\nNote: It may take a few minutes for the site to build and deploy the changes.`
+            });
+
+            await github.rest.issues.update({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed'
+            });
