@@ -4,8 +4,9 @@
 
 
 ---
-
+<br>Does something need a reboot?<br>
 <a href="https://github.com/peers8862/RebootV1/issues/new?assignees=&labels=new-page&template=new-page.yml" target="_blank">
   ➕ Create a New Page
 </a>
+<br><br><br>
 

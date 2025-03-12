@@ -26,6 +26,7 @@ body:
         - page
         - post
         - default
+      default: "page"
     validations:
       required: true
   
