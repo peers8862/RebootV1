@@ -1,96 +1,54 @@
-name: Create Jekyll Page from Issue Form
+- name: Extract form data and create page
+  id: extract-data
+  run: |
+    # Extract issue title and sanitize it
+    TITLE=$(echo "${{ github.event.issue.title }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
 
-on:
-  issues:
-    types: [opened, edited]
+    # Extract raw issue body
+    BODY="${{ github.event.issue.body }}"
 
-jobs:
-  create-page:
-    if: contains(github.event.issue.labels.*.name, 'new-page')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    # Ensure BODY is not null
+    if [[ -z "$BODY" || "$BODY" == "null" ]]; then
+      echo "Error: Issue body is empty or null."
+      exit 1
+    fi
 
-      - name: Extract form data and create page
-        id: extract-data
-        run: |
-          # Extract the title and sanitize it
-          TITLE=$(echo "${{ github.event.issue.title }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
+    # Extract key fields using grep and sed
+    PAGE_TITLE=$(echo "$BODY" | grep -A1 'Page Title' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
+    PAGE_LAYOUT=$(echo "$BODY" | grep -A1 'Layout' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
+    PAGE_CONTENT=$(echo "$BODY" | grep -A1 'Page Content' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-          # Convert GitHub Issue Body into a JSON-compatible format
-          BODY_JSON=$(echo '${{ github.event.issue.body }}' | jq -Rs '.')
+    # Default to 'page' layout if none is provided
+    [ -z "$PAGE_LAYOUT" ] && PAGE_LAYOUT="page"
 
-          # Extract fields properly
-          PAGE_TITLE=$(echo "$BODY_JSON" | jq -r 'split("\n") | map(select(test("^Page Title: "))) | .[0] | sub("^Page Title: "; "")')
-          PAGE_LAYOUT=$(echo "$BODY_JSON" | jq -r 'split("\n") | map(select(test("^Layout: "))) | .[0] | sub("^Layout: "; "")')
-          PAGE_CONTENT=$(echo "$BODY_JSON" | jq -r 'split("\n") | map(select(test("^Page Content: "))) | .[0] | sub("^Page Content: "; "")')
+    # Define filename and permalink
+    if [[ "$PAGE_LAYOUT" == "post" ]]; then
+      FILENAME="_posts/$(date +%Y-%m-%d)-${TITLE}.md"
+      URL_PATH="$(date +%Y/%m/%d)/${TITLE}"
+    else
+      FILENAME="_pages/${TITLE}.md"
+      URL_PATH="${TITLE}"
+    fi
 
-          # Default layout if missing
-          [ -z "$PAGE_LAYOUT" ] && PAGE_LAYOUT="page"
+    # Output variables for later use
+    echo "filename=$FILENAME" >> $GITHUB_ENV
+    echo "url_path=$URL_PATH" >> $GITHUB_ENV
+    echo "page_title=$PAGE_TITLE" >> $GITHUB_ENV
+    echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_ENV
 
-          # Define filename and permalink
-          if [[ "$PAGE_LAYOUT" == "post" ]]; then
-            FILENAME="_posts/$(date +%Y-%m-%d)-${TITLE}.md"
-            URL_PATH="$(date +%Y/%m/%d)/${TITLE}"
-          else
-            FILENAME="_pages/${TITLE}.md"
-            URL_PATH="${TITLE}"
-          fi
+    # Ensure directory exists
+    mkdir -p $(dirname "$FILENAME")
 
-          # Output variables for later steps
-          echo "filename=$FILENAME" >> $GITHUB_ENV
-          echo "url_path=$URL_PATH" >> $GITHUB_ENV
-          echo "page_title=$PAGE_TITLE" >> $GITHUB_ENV
-          echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_ENV
+    # Create markdown file
+    cat <<EOF > "$FILENAME"
+    ---
+    layout: $PAGE_LAYOUT
+    title: "$PAGE_TITLE"
+    date: $(date +"%Y-%m-%d %H:%M:%S %z")
+    permalink: /$URL_PATH/
+    ---
+    $PAGE_CONTENT
+    EOF
 
-          # Ensure directory exists
-          mkdir -p $(dirname "$FILENAME")
-
-          # Create markdown file
-          cat <<EOF > "$FILENAME"
-          ---
-          layout: $PAGE_LAYOUT
-          title: "$PAGE_TITLE"
-          date: $(date +"%Y-%m-%d %H:%M:%S %z")
-          permalink: /$URL_PATH/
-          ---
-          $PAGE_CONTENT
-          EOF
-
-          # Show file content for debugging
-          cat "$FILENAME"
-
-      - name: Commit and push changes
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add "${{ env.filename }}"
-          git commit -m "Add new page from issue #${{ github.event.issue.number }}"
-          git push
-
-      - name: Comment on the issue
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const urlPath = "${{ env.url_path }}";
-            const siteUrl = `https://www.reboot.chat/${urlPath}/`;
-
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `✅ Page created successfully!\n\nYour new page will be available at: [${siteUrl}](${siteUrl})\n\nNote: It may take a few minutes for the site to build and deploy the changes.`
-            });
-
-            await github.rest.issues.update({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'closed'
-            });
+    # Show file content for debugging
+    cat "$FILENAME"
