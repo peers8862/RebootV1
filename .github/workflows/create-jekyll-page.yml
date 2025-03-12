@@ -22,14 +22,15 @@ jobs:
           # Extract the title and sanitize
           TITLE=$(echo "${{ github.event.issue.title }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
 
-          # Extract issue body content for page title, layout, and content
-          PAGE_TITLE=$(echo "${{ github.event.issue.body }}" | sed -n '/### Page Title/{n;p}' | sed 's/^[ \t]*//;s/[ \t]*$//')
-          PAGE_LAYOUT=$(echo "${{ github.event.issue.body }}" | sed -n '/### Layout/{n;p}' | sed 's/^[ \t]*//;s/[ \t]*$//')
-          PAGE_CONTENT=$(echo "${{ github.event.issue.body }}" | sed -n '/### Page Content/{n;p}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+         # Extracting form data using jq instead of relying on header-based parsing
+          TITLE=$(echo '${{ github.event.issue.title }}' | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
+          PAGE_TITLE=$(jq -r '.issue.body' <<< '${{ toJSON(github.event) }}' | grep -A1 'Page Title' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
+          PAGE_LAYOUT=$(jq -r '.issue.body' <<< '${{ toJSON(github.event) }}' | grep -A1 'Layout' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
+          PAGE_CONTENT=$(jq -r '.issue.body' <<< '${{ toJSON(github.event) }}' | grep -A1 'Page Content' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-          # Default to post if no layout provided
+          # Default to post if no layout is provided
           if [ -z "$PAGE_LAYOUT" ]; then
-            PAGE_LAYOUT="post"
+          PAGE_LAYOUT="page"
           fi
 
           # Set file and URL path based on layout
