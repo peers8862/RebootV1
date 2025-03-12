@@ -1,5 +1,4 @@
 name: Create New Reboot
-
 on:
   issues:
     types: [opened, edited]
@@ -32,9 +31,11 @@ jobs:
           # Create filename with date prefix for posts or simple name for pages
           if [[ "$PAGE_LAYOUT" == "post" ]]; then
             FILENAME="_posts/$(date +%Y-%m-%d)-${TITLE}.md"
+            # For posts, Jekyll usually generates URLs like /YYYY/MM/DD/title/ (without .html extension)
             URL_PATH="$(date +%Y/%m/%d)/${TITLE}"
           else
             FILENAME="_pages/${TITLE}.md"
+            # For pages, Jekyll usually generates URLs like /title/ (without .html extension)
             URL_PATH="${TITLE}"
             mkdir -p _pages
           fi
@@ -52,9 +53,9 @@ jobs:
           # Create frontmatter
           echo "---" > ${{ steps.extract-data.outputs.filename }}
           echo "layout: ${{ steps.extract-data.outputs.page_layout }}" >> ${{ steps.extract-data.outputs.filename }}
-          echo "title: ${{ steps.extract-data.outputs.page_title }}" >> ${{ steps.extract-data.outputs.filename }}
+          echo "title: \"${{ steps.extract-data.outputs.page_title }}\"" >> ${{ steps.extract-data.outputs.filename }}
           echo "date: $(date +"%Y-%m-%d %H:%M:%S %z")" >> ${{ steps.extract-data.outputs.filename }}
-          echo "permalink: /${{ steps.extract-data.outputs.url_path }}" >> ${{ steps.extract-data.outputs.filename }}
+          echo "permalink: /${{ steps.extract-data.outputs.url_path }}/" >> ${{ steps.extract-data.outputs.filename }}
           echo "---" >> ${{ steps.extract-data.outputs.filename }}
           echo "" >> ${{ steps.extract-data.outputs.filename }}
           
@@ -76,8 +77,8 @@ jobs:
           script: |
             const urlPath = "${{ steps.extract-data.outputs.url_path }}";
             
-            // Use custom domain
-            const siteUrl = `https://www.reboot.chat/${urlPath}`;
+            // Use custom domain with trailing slash and without .html
+            const siteUrl = `https://www.reboot.chat/${urlPath}/`;
             
             // Add a comment with the link to the page
             await github.rest.issues.createComment({
