@@ -32,10 +32,10 @@ jobs:
           # Create filename with date prefix for posts or simple name for pages
           if [[ "$PAGE_LAYOUT" == "post" ]]; then
             FILENAME="_posts/$(date +%Y-%m-%d)-${TITLE}.md"
-            URL_PATH="$(date +%Y/%m/%d)/${TITLE}.html"
+            URL_PATH="$(date +%Y/%m/%d)/${TITLE}"
           else
             FILENAME="_pages/${TITLE}.md"
-            URL_PATH="${TITLE}.html"
+            URL_PATH="${TITLE}"
             mkdir -p _pages
           fi
           
