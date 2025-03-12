@@ -49,13 +49,13 @@ jobs:
           echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_ENV
           
           # Create the front matter and page content in one go
-          echo "---" > ${{ env.filename }}
-          echo "layout: ${{ env.page_layout }}" >> ${{ env.filename }}
-          echo "title: \"${{ env.page_title }}\"" >> ${{ env.filename }}
-          echo "date: $(date +"%Y-%m-%d %H:%M:%S %z")" >> ${{ env.filename }}
-          echo "permalink: /${{ env.url_path }}/" >> ${{ env.filename }}
-          echo "---" >> ${{ env.filename }}
-          echo "$PAGE_CONTENT" >> ${{ env.filename }}
+          echo "---" > $FILENAME
+          echo "layout: $PAGE_LAYOUT" >> $FILENAME
+          echo "title: \"$PAGE_TITLE\"" >> $FILENAME
+          echo "date: $(date +"%Y-%m-%d %H:%M:%S %z")" >> $FILENAME
+          echo "permalink: /$URL_PATH/" >> $FILENAME
+          echo "---" >> $FILENAME
+          echo "$PAGE_CONTENT" >> $FILENAME
       
       - name: Commit and push
         run: |
