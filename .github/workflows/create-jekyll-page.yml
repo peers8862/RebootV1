@@ -1,4 +1,5 @@
-name: Create New Reboot
+name: Create Jekyll Page from Issue Form
+
 on:
   issues:
     types: [opened, edited]
@@ -20,22 +21,33 @@ jobs:
         run: |
           TITLE=$(echo "${{ github.event.issue.title }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
           
-          # Store issue body in a file to avoid quote escaping issues
+          # Store issue body to file
           echo '${{ github.event.issue.body }}' > issue_body.txt
           
-          # Extract fields from issue body
-          PAGE_TITLE=$(grep -A1 "### Page Title" issue_body.txt | tail -n1 | sed 's/^[ \t]*//')
-          PAGE_CONTENT=$(grep -A1 "### Page Content" issue_body.txt | tail -n1 | sed 's/^[ \t]*//')
-          PAGE_LAYOUT=$(grep -A1 "### Layout" issue_body.txt | tail -n1 | sed 's/^[ \t]*//')
+          # Extract fields from issue body using more robust method
+          # For multi-line content, capture everything between field markers
+          PAGE_TITLE=$(awk -F '### Page Title' 'NR>1{print $1}' issue_body.txt | awk -F '###' 'NR==1{print $1}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+          PAGE_LAYOUT=$(awk -F '### Layout' 'NR>1{print $1}' issue_body.txt | awk -F '###' 'NR==1{print $1}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+          
+          # Capture all content after "### Page Content" until next "###" or end of file
+          PAGE_CONTENT=$(awk '/### Page Content/{flag=1;next} /^###/{flag=0} flag' issue_body.txt | sed 's/^[ \t]*//;s/[ \t]*$//')
+          
+          # If PAGE_CONTENT is empty, try alternative approach
+          if [ -z "$PAGE_CONTENT" ]; then
+            PAGE_CONTENT=$(sed -n '/### Page Content/,/^$/p' issue_body.txt | sed '1d;$d')
+          fi
+          
+          # Output debugging info
+          echo "Extracted Title: $PAGE_TITLE"
+          echo "Extracted Layout: $PAGE_LAYOUT"
+          echo "Content length: $(echo "$PAGE_CONTENT" | wc -c) bytes"
           
           # Create filename with date prefix for posts or simple name for pages
           if [[ "$PAGE_LAYOUT" == "post" ]]; then
             FILENAME="_posts/$(date +%Y-%m-%d)-${TITLE}.md"
-            # For posts, Jekyll usually generates URLs like /YYYY/MM/DD/title/ (without .html extension)
             URL_PATH="$(date +%Y/%m/%d)/${TITLE}"
           else
             FILENAME="_pages/${TITLE}.md"
-            # For pages, Jekyll usually generates URLs like /title/ (without .html extension)
             URL_PATH="${TITLE}"
             mkdir -p _pages
           fi
@@ -45,8 +57,15 @@ jobs:
           echo "page_title=$PAGE_TITLE" >> $GITHUB_OUTPUT
           echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_OUTPUT
           
-          # Write page content to a file to avoid quoting issues
+          # Save content to file to avoid shell escaping issues
           echo "$PAGE_CONTENT" > page_content.txt
+      
+      - name: Display debugging info
+        run: |
+          echo "Content of page_content.txt:"
+          cat page_content.txt
+          echo "---"
+          echo "File size: $(wc -c < page_content.txt) bytes"
       
       - name: Create page file
         run: |
@@ -59,8 +78,12 @@ jobs:
           echo "---" >> ${{ steps.extract-data.outputs.filename }}
           echo "" >> ${{ steps.extract-data.outputs.filename }}
           
-          # Append content
+          # Append content and preserve multiline content
           cat page_content.txt >> ${{ steps.extract-data.outputs.filename }}
+          
+          # Show the final file for debugging
+          echo "Final file content:"
+          cat ${{ steps.extract-data.outputs.filename }}
       
       - name: Commit and push
         run: |
@@ -77,7 +100,7 @@ jobs:
           script: |
             const urlPath = "${{ steps.extract-data.outputs.url_path }}";
             
-            // Use custom domain with trailing slash and without .html
+            // Use custom domain with trailing slash
             const siteUrl = `https://www.reboot.chat/${urlPath}/`;
             
             // Add a comment with the link to the page
