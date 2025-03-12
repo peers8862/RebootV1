@@ -6,7 +6,7 @@ on:
 
 jobs:
   create-page:
-    if: ${{ contains(github.event.issue.labels.*.name, 'new-page') }}
+    if: contains(github.event.issue.labels.*.name, 'new-page')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -15,24 +15,24 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        
       - name: Extract form data and create page
         id: extract-data
         run: |
-          # Extract the title and sanitize
+          # Extract the title and sanitize it
           TITLE=$(echo "${{ github.event.issue.title }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
 
-         # Extracting form data using jq instead of relying on header-based parsing
-          TITLE=$(echo '${{ github.event.issue.title }}' | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
-          PAGE_TITLE=$(jq -r '.issue.body' <<< '${{ toJSON(github.event) }}' | grep -A1 'Page Title' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
-          PAGE_LAYOUT=$(jq -r '.issue.body' <<< '${{ toJSON(github.event) }}' | grep -A1 'Layout' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
-          PAGE_CONTENT=$(jq -r '.issue.body' <<< '${{ toJSON(github.event) }}' | grep -A1 'Page Content' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
+          # Extracting form data safely
+          BODY_JSON=$(jq -r '.issue.body' <<< '${{ toJSON(github.event) }}')
 
-          # Default to post if no layout is provided
-          if [ -z "$PAGE_LAYOUT" ]; then
-          PAGE_LAYOUT="page"
-          fi
+          PAGE_TITLE=$(echo "$BODY_JSON" | grep -A1 'Page Title' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
+          PAGE_LAYOUT=$(echo "$BODY_JSON" | grep -A1 'Layout' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
+          PAGE_CONTENT=$(echo "$BODY_JSON" | grep -A1 'Page Content' | tail -n1 | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-          # Set file and URL path based on layout
+          # Default to 'page' if layout is missing
+          [ -z "$PAGE_LAYOUT" ] && PAGE_LAYOUT="page"
+
+          # Define filename and permalink
           if [[ "$PAGE_LAYOUT" == "post" ]]; then
             FILENAME="_posts/$(date +%Y-%m-%d)-${TITLE}.md"
             URL_PATH="$(date +%Y/%m/%d)/${TITLE}"
@@ -41,32 +41,34 @@ jobs:
             URL_PATH="${TITLE}"
           fi
 
-          # Output variables for later use
+          # Output variables
           echo "filename=$FILENAME" >> $GITHUB_ENV
           echo "url_path=$URL_PATH" >> $GITHUB_ENV
           echo "page_title=$PAGE_TITLE" >> $GITHUB_ENV
           echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_ENV
 
-          # Ensure the page directory exists
-          mkdir -p $(dirname $FILENAME)
+          # Ensure the directory exists
+          mkdir -p $(dirname "$FILENAME")
 
-          # Create the frontmatter and content file
-          echo "---" > $FILENAME
-          echo "layout: $PAGE_LAYOUT" >> $FILENAME
-          echo "title: \"$PAGE_TITLE\"" >> $FILENAME
-          echo "date: $(date +"%Y-%m-%d %H:%M:%S %z")" >> $FILENAME
-          echo "permalink: /$URL_PATH/" >> $FILENAME
-          echo "---" >> $FILENAME
-          echo "$PAGE_CONTENT" >> $FILENAME
+          # Create the markdown file
+          cat <<EOF > "$FILENAME"
+          ---
+          layout: $PAGE_LAYOUT
+          title: "$PAGE_TITLE"
+          date: $(date +"%Y-%m-%d %H:%M:%S %z")
+          permalink: /$URL_PATH/
+          ---
+          $PAGE_CONTENT
+          EOF
 
-          # Show the file content for debugging
-          cat $FILENAME
+          # Show file content for debugging
+          cat "$FILENAME"
 
       - name: Commit and push changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add ${{ env.filename }}
+          git add "${{ env.filename }}"
           git commit -m "Add new page from issue #${{ github.event.issue.number }}"
           git push
 
@@ -78,17 +80,13 @@ jobs:
             const urlPath = "${{ env.url_path }}";
             const siteUrl = `https://www.reboot.chat/${urlPath}/`;
 
-            // Add a comment with the link to the page
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `✅ Page created successfully!\n\n` +
-                    `Your new page will be available at: [${siteUrl}](${siteUrl})\n\n` +
-                    `Note: It may take a few minutes for the site to build and deploy the changes.`
+              body: `✅ Page created successfully!\n\nYour new page will be available at: [${siteUrl}](${siteUrl})\n\nNote: It may take a few minutes for the site to build and deploy the changes.`
             });
 
-            // Close the issue
             await github.rest.issues.update({
               issue_number: context.issue.number,
               owner: context.repo.owner,
