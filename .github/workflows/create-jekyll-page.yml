@@ -16,33 +16,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         
-      - name: Extract form data
+      - name: Extract form data and create page
         id: extract-data
         run: |
+          # Extract and sanitize the title
           TITLE=$(echo "${{ github.event.issue.title }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
           
-          # Store issue body to file
-          echo '${{ github.event.issue.body }}' > issue_body.txt
-          
-          # Extract fields from issue body using more robust method
-          # For multi-line content, capture everything between field markers
-          PAGE_TITLE=$(awk -F '### Page Title' 'NR>1{print $1}' issue_body.txt | awk -F '###' 'NR==1{print $1}' | sed 's/^[ \t]*//;s/[ \t]*$//')
-          PAGE_LAYOUT=$(awk -F '### Layout' 'NR>1{print $1}' issue_body.txt | awk -F '###' 'NR==1{print $1}' | sed 's/^[ \t]*//;s/[ \t]*$//')
-          
-          # Capture all content after "### Page Content" until next "###" or end of file
-          PAGE_CONTENT=$(awk '/### Page Content/{flag=1;next} /^###/{flag=0} flag' issue_body.txt | sed 's/^[ \t]*//;s/[ \t]*$//')
-          
-          # If PAGE_CONTENT is empty, try alternative approach
+          # Extract the issue body content and fields
+          PAGE_TITLE=$(echo "${{ github.event.issue.body }}" | awk '/### Page Title/{flag=1;next} /^###/{flag=0} flag' | sed 's/^[ \t]*//;s/[ \t]*$//')
+          PAGE_LAYOUT=$(echo "${{ github.event.issue.body }}" | awk '/### Layout/{flag=1;next} /^###/{flag=0} flag' | sed 's/^[ \t]*//;s/[ \t]*$//')
+          PAGE_CONTENT=$(echo "${{ github.event.issue.body }}" | awk '/### Page Content/{flag=1;next} /^###/{flag=0} flag' | sed 's/^[ \t]*//;s/[ \t]*$//')
+
+          # Fallback for empty content
           if [ -z "$PAGE_CONTENT" ]; then
-            PAGE_CONTENT=$(sed -n '/### Page Content/,/^$/p' issue_body.txt | sed '1d;$d')
+            PAGE_CONTENT=$(echo "${{ github.event.issue.body }}" | sed -n '/### Page Content/,/^$/p' | sed '1d;$d')
           fi
           
-          # Output debugging info
-          echo "Extracted Title: $PAGE_TITLE"
-          echo "Extracted Layout: $PAGE_LAYOUT"
-          echo "Content length: $(echo "$PAGE_CONTENT" | wc -c) bytes"
-          
-          # Create filename with date prefix for posts or simple name for pages
+          # Define file name and URL path
           if [[ "$PAGE_LAYOUT" == "post" ]]; then
             FILENAME="_posts/$(date +%Y-%m-%d)-${TITLE}.md"
             URL_PATH="$(date +%Y/%m/%d)/${TITLE}"
@@ -52,44 +42,26 @@ jobs:
             mkdir -p _pages
           fi
           
-          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
-          echo "url_path=$URL_PATH" >> $GITHUB_OUTPUT
-          echo "page_title=$PAGE_TITLE" >> $GITHUB_OUTPUT
-          echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_OUTPUT
+          # Output variables for further steps
+          echo "filename=$FILENAME" >> $GITHUB_ENV
+          echo "url_path=$URL_PATH" >> $GITHUB_ENV
+          echo "page_title=$PAGE_TITLE" >> $GITHUB_ENV
+          echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_ENV
           
-          # Save content to file to avoid shell escaping issues
-          echo "$PAGE_CONTENT" > page_content.txt
-      
-      - name: Display debugging info
-        run: |
-          echo "Content of page_content.txt:"
-          cat page_content.txt
-          echo "---"
-          echo "File size: $(wc -c < page_content.txt) bytes"
-      
-      - name: Create page file
-        run: |
-          # Create frontmatter
-          echo "---" > ${{ steps.extract-data.outputs.filename }}
-          echo "layout: ${{ steps.extract-data.outputs.page_layout }}" >> ${{ steps.extract-data.outputs.filename }}
-          echo "title: \"${{ steps.extract-data.outputs.page_title }}\"" >> ${{ steps.extract-data.outputs.filename }}
-          echo "date: $(date +"%Y-%m-%d %H:%M:%S %z")" >> ${{ steps.extract-data.outputs.filename }}
-          echo "permalink: /${{ steps.extract-data.outputs.url_path }}/" >> ${{ steps.extract-data.outputs.filename }}
-          echo "---" >> ${{ steps.extract-data.outputs.filename }}
-          echo "" >> ${{ steps.extract-data.outputs.filename }}
-          
-          # Append content and preserve multiline content
-          cat page_content.txt >> ${{ steps.extract-data.outputs.filename }}
-          
-          # Show the final file for debugging
-          echo "Final file content:"
-          cat ${{ steps.extract-data.outputs.filename }}
+          # Create the front matter and page content in one go
+          echo "---" > ${{ env.filename }}
+          echo "layout: ${{ env.page_layout }}" >> ${{ env.filename }}
+          echo "title: \"${{ env.page_title }}\"" >> ${{ env.filename }}
+          echo "date: $(date +"%Y-%m-%d %H:%M:%S %z")" >> ${{ env.filename }}
+          echo "permalink: /${{ env.url_path }}/" >> ${{ env.filename }}
+          echo "---" >> ${{ env.filename }}
+          echo "$PAGE_CONTENT" >> ${{ env.filename }}
       
       - name: Commit and push
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add ${{ steps.extract-data.outputs.filename }}
+          git add ${{ env.filename }}
           git commit -m "Add new page from issue #${{ github.event.issue.number }}"
           git push
       
@@ -98,9 +70,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const urlPath = "${{ steps.extract-data.outputs.url_path }}";
-            
-            // Use custom domain with trailing slash
+            const urlPath = "${{ env.url_path }}";
             const siteUrl = `https://www.reboot.chat/${urlPath}/`;
             
             // Add a comment with the link to the page
