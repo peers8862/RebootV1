@@ -9,7 +9,7 @@ body:
         Thanks for taking the time to create a new page for our website!
   
   - type: input
-    id: page-title
+    id: page_title
     attributes:
       label: Page Title
       description: The title of your page
@@ -18,7 +18,7 @@ body:
       required: true
   
   - type: dropdown
-    id: layout
+    id: page_layout
     attributes:
       label: Layout
       description: Choose the layout for your page
@@ -30,7 +30,7 @@ body:
       required: true
   
   - type: textarea
-    id: page-content
+    id: page_content
     attributes:
       label: Page Content
       description: The content of your page (Markdown supported)
