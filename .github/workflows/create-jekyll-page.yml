@@ -15,40 +15,42 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-        
+
       - name: Extract form data and create page
         id: extract-data
         run: |
-          # Extract and sanitize the title
+          # Extract the title and sanitize
           TITLE=$(echo "${{ github.event.issue.title }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
-          
-          # Extract the issue body content and fields
-          PAGE_TITLE=$(echo "${{ github.event.issue.body }}" | awk '/### Page Title/{flag=1;next} /^###/{flag=0} flag' | sed 's/^[ \t]*//;s/[ \t]*$//')
-          PAGE_LAYOUT=$(echo "${{ github.event.issue.body }}" | awk '/### Layout/{flag=1;next} /^###/{flag=0} flag' | sed 's/^[ \t]*//;s/[ \t]*$//')
-          PAGE_CONTENT=$(echo "${{ github.event.issue.body }}" | awk '/### Page Content/{flag=1;next} /^###/{flag=0} flag' | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-          # Fallback for empty content
-          if [ -z "$PAGE_CONTENT" ]; then
-            PAGE_CONTENT=$(echo "${{ github.event.issue.body }}" | sed -n '/### Page Content/,/^$/p' | sed '1d;$d')
+          # Extract issue body content for page title, layout, and content
+          PAGE_TITLE=$(echo "${{ github.event.issue.body }}" | sed -n '/### Page Title/{n;p}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+          PAGE_LAYOUT=$(echo "${{ github.event.issue.body }}" | sed -n '/### Layout/{n;p}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+          PAGE_CONTENT=$(echo "${{ github.event.issue.body }}" | sed -n '/### Page Content/{n;p}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+
+          # Default to post if no layout provided
+          if [ -z "$PAGE_LAYOUT" ]; then
+            PAGE_LAYOUT="post"
           fi
-          
-          # Define file name and URL path
+
+          # Set file and URL path based on layout
           if [[ "$PAGE_LAYOUT" == "post" ]]; then
             FILENAME="_posts/$(date +%Y-%m-%d)-${TITLE}.md"
             URL_PATH="$(date +%Y/%m/%d)/${TITLE}"
           else
             FILENAME="_pages/${TITLE}.md"
             URL_PATH="${TITLE}"
-            mkdir -p _pages
           fi
-          
-          # Output variables for further steps
+
+          # Output variables for later use
           echo "filename=$FILENAME" >> $GITHUB_ENV
           echo "url_path=$URL_PATH" >> $GITHUB_ENV
           echo "page_title=$PAGE_TITLE" >> $GITHUB_ENV
           echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_ENV
-          
-          # Create the front matter and page content in one go
+
+          # Ensure the page directory exists
+          mkdir -p $(dirname $FILENAME)
+
+          # Create the frontmatter and content file
           echo "---" > $FILENAME
           echo "layout: $PAGE_LAYOUT" >> $FILENAME
           echo "title: \"$PAGE_TITLE\"" >> $FILENAME
@@ -56,23 +58,26 @@ jobs:
           echo "permalink: /$URL_PATH/" >> $FILENAME
           echo "---" >> $FILENAME
           echo "$PAGE_CONTENT" >> $FILENAME
-      
-      - name: Commit and push
+
+          # Show the file content for debugging
+          cat $FILENAME
+
+      - name: Commit and push changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add ${{ env.filename }}
           git commit -m "Add new page from issue #${{ github.event.issue.number }}"
           git push
-      
-      - name: Comment on issue
+
+      - name: Comment on the issue
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const urlPath = "${{ env.url_path }}";
             const siteUrl = `https://www.reboot.chat/${urlPath}/`;
-            
+
             // Add a comment with the link to the page
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -82,7 +87,7 @@ jobs:
                     `Your new page will be available at: [${siteUrl}](${siteUrl})\n\n` +
                     `Note: It may take a few minutes for the site to build and deploy the changes.`
             });
-            
+
             // Close the issue
             await github.rest.issues.update({
               issue_number: context.issue.number,
