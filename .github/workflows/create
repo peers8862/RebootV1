@@ -39,37 +39,8 @@ jobs:
           PAGE_LAYOUT=$(echo "$BODY" | awk '/### Layout/{getline; print}' | sed 's/^[ \t]*//;s/[ \t]*$//')
           PAGE_CONTENT=$(echo "$BODY" | awk '/### Page Content/{flag=1; next} /^###/{flag=0} flag')
 
-          # Debug extracted values
-          echo "Extracted PAGE_TITLE: '$PAGE_TITLE'"
-          echo "Extracted PAGE_LAYOUT: '$PAGE_LAYOUT'"
-          echo "Extracted PAGE_CONTENT (first 100 chars): '$(echo "$PAGE_CONTENT" | head -c 100)...'"
-
-          # Convert title into a filename-safe slug with enhanced debug
-          echo "Original title before sanitization: '$PAGE_TITLE'"
-          
-          # Handle empty titles by using the issue title as fallback
-          if [ -z "$PAGE_TITLE" ]; then
-            echo "WARNING: Empty page title, using issue title as fallback"
-            PAGE_TITLE="${{ github.event.issue.title }}"
-            echo "Using issue title instead: '$PAGE_TITLE'"
-          fi
-          
-          # Enhanced slug generation with better debugging
-          SAFE_TITLE=$(echo "$PAGE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
-          echo "Generated SAFE_TITLE: '$SAFE_TITLE'"
-          
-          # Extra safety check - if slug is empty or just hyphens, use a default
-          if [ -z "$SAFE_TITLE" ] || [ "$SAFE_TITLE" = "-" ]; then
-            echo "WARNING: Empty or invalid slug generated, using default"
-            SAFE_TITLE="page-$(date +%s)"
-            echo "Using default title: '$SAFE_TITLE'"
-          fi
-          
-          # Set default layout if not specified
-          if [ -z "$PAGE_LAYOUT" ]; then
-            PAGE_LAYOUT="page"
-            echo "Setting default layout: '$PAGE_LAYOUT'"
-          fi
+          # Convert title into a filename-safe slug
+          SAFE_TITLE=$(echo "$PAGE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g')
 
           # Define filename and permalink
           if [[ "$PAGE_LAYOUT" == "post" ]]; then
@@ -79,9 +50,6 @@ jobs:
             FILENAME="_pages/${SAFE_TITLE}.md"
             URL_PATH="${SAFE_TITLE}"
           fi
-          
-          echo "Generated FILENAME: '$FILENAME'"
-          echo "Generated URL_PATH: '$URL_PATH'"
   
           # Store environment variables
           echo "PAGE_TITLE=$PAGE_TITLE" >> $GITHUB_ENV
@@ -91,7 +59,6 @@ jobs:
           echo "EOF" >> $GITHUB_ENV
           echo "FILENAME=$FILENAME" >> $GITHUB_ENV
           echo "URL_PATH=$URL_PATH" >> $GITHUB_ENV
-          echo "SAFE_TITLE=$SAFE_TITLE" >> $GITHUB_ENV
 
       - name: Save content to a separate file
         run: echo "${{ env.PAGE_CONTENT }}" > page_content.txt
@@ -100,13 +67,6 @@ jobs:
         run: |
           # Create directory if needed
           mkdir -p $(dirname "${{ env.FILENAME }}")
-          
-          # Final check for URL_PATH
-          if [ -z "${{ env.URL_PATH }}" ]; then
-            echo "ERROR: Empty URL_PATH detected. Using fallback URL."
-            URL_PATH="pages/fallback-$(date +%s)"
-            echo "URL_PATH=$URL_PATH" >> $GITHUB_ENV
-          fi
           
           # Create the frontmatter
           cat > "${{ env.FILENAME }}" <<- EOF
@@ -121,7 +81,7 @@ jobs:
           EOF
 
           # Append content safely
-          cat page_content.txt >> "${{ env.FILENAME }}"
+          echo "${{ env.PAGE_CONTENT }}" >> "${{ env.FILENAME }}"
 
           # Show file content for debugging
           echo "----------- Final file content -----------"
@@ -133,7 +93,7 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add "${{ env.FILENAME }}"
-          git commit -m "Add new page from issue #${{ github.event.issue.number }}: ${{ env.SAFE_TITLE }}"
+          git commit -m "Add new page from issue #${{ github.event.issue.number }}"
           git push
         
       - name: Comment on the issue
@@ -147,7 +107,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `✅ Page created successfully!\n\nYour new page will be available at: [${siteUrl}](${siteUrl})\n\nNote: It may take a few minutes for the site to build and deploy the changes.\n\nTitle used: "${{ env.PAGE_TITLE }}"\nURL slug: "${{ env.SAFE_TITLE }}"`
+              body: `✅ Page created successfully!\n\nYour new page will be available at: [${siteUrl}](${siteUrl})\n\nNote: It may take a few minutes for the site to build and deploy the changes.`
             });
             await github.rest.issues.update({
               issue_number: context.issue.number,
