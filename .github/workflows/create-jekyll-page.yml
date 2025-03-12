@@ -20,16 +20,16 @@ jobs:
         run: |
           echo "Issue Title: ${{ github.event.issue.title }}"
           echo "Issue Body Length: $(echo '${{ github.event.issue.body }}' | wc -c) characters"
-      
+
       - name: Save issue body to file
         run: |
-        # Save the issue body to a file to avoid shell escaping issues
+          # Save the issue body to a file to avoid shell escaping issues
           echo '${{ github.event.issue.body }}' > issue_body.txt
           
-        # Show the first 10 lines for debugging
+          # Show the first 10 lines for debugging
           echo "First 10 lines of issue body:"
           head -n 10 issue_body.txt
-      
+
       - name: Extract form data
         id: extract
         run: |
@@ -38,11 +38,11 @@ jobs:
           PAGE_TITLE=$(echo "$BODY" | awk '/### Page Title/{getline; print}' | sed 's/^[ \t]*//;s/[ \t]*$//')
           PAGE_LAYOUT=$(echo "$BODY" | awk '/### Layout/{getline; print}' | sed 's/^[ \t]*//;s/[ \t]*$//')
           PAGE_CONTENT=$(echo "$BODY" | awk '/### Page Content/{flag=1; next} /^###/{flag=0} flag')
-  
-        # Convert title into a filename-safe slug
+
+          # Convert title into a filename-safe slug
           SAFE_TITLE=$(echo "$PAGE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g')
-  
-        # Define filename and permalink
+
+          # Define filename and permalink
           if [[ "$PAGE_LAYOUT" == "post" ]]; then
             FILENAME="_posts/$(date +%Y-%m-%d)-${SAFE_TITLE}.md"
             URL_PATH="$(date +%Y/%m/%d)/${SAFE_TITLE}"
@@ -51,21 +51,23 @@ jobs:
             URL_PATH="${SAFE_TITLE}"
           fi
   
-        # Store environment variables
-        echo "PAGE_TITLE=$PAGE_TITLE" >> $GITHUB_ENV
-        echo "PAGE_LAYOUT=$PAGE_LAYOUT" >> $GITHUB_ENV
-        echo "PAGE_CONTENT<<EOF" >> $GITHUB_ENV
-        echo "$PAGE_CONTENT" >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
-        echo "FILENAME=$FILENAME" >> $GITHUB_ENV
-        echo "URL_PATH=$URL_PATH" >> $GITHUB_ENV
-  
-        - name: Save content to a separate file
-          run: echo "${{ env.PAGE_CONTENT }}" > page_content.txt
-  
-        
+          # Store environment variables
+          echo "PAGE_TITLE=$PAGE_TITLE" >> $GITHUB_ENV
+          echo "PAGE_LAYOUT=$PAGE_LAYOUT" >> $GITHUB_ENV
+          echo "PAGE_CONTENT<<EOF" >> $GITHUB_ENV
+          echo "$PAGE_CONTENT" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          echo "FILENAME=$FILENAME" >> $GITHUB_ENV
+          echo "URL_PATH=$URL_PATH" >> $GITHUB_ENV
+
+      - name: Save content to a separate file
+        run: echo "${{ env.PAGE_CONTENT }}" > page_content.txt
+
       - name: Create page file
         run: |
+          # Create directory if needed
+          mkdir -p $(dirname "${{ env.FILENAME }}")
+          
           # Create the frontmatter
           cat > "${{ env.FILENAME }}" <<- EOF
           ---
@@ -85,34 +87,31 @@ jobs:
           echo "----------- Final file content -----------"
           cat "${{ env.FILENAME }}"
           echo "-----------------------------------------"
-
+          
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add "${{ env.FILENAME }}"
+          git commit -m "Add new page from issue #${{ github.event.issue.number }}"
+          git push
         
-        - name: Commit and push changes
-          run: |
-            git config --local user.email "action@github.com"
-            git config --local user.name "GitHub Action"
-            git add "${{ env.FILENAME }}"
-            git commit -m "Add new page from issue #${{ github.event.issue.number }}"
-            git push
-
-        
-        - name: Comment on the issue
-          uses: actions/github-script@v6
-          with:
-            github-token: ${{ secrets.GITHUB_TOKEN }}
-            script: |
-              const urlPath = "${{ env.URL_PATH }}";
-              const siteUrl = `https://www.reboot.chat/${urlPath}/`;
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: `✅ Page created successfully!\n\nYour new page will be available at: [${siteUrl}](${siteUrl})\n\nNote: It may take a few minutes for the site to build and deploy the changes.`
-              });
-              await github.rest.issues.update({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                state: 'closed'
-              });
-
+      - name: Comment on the issue
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const urlPath = "${{ env.URL_PATH }}";
+            const siteUrl = `https://www.reboot.chat/${urlPath}/`;
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `✅ Page created successfully!\n\nYour new page will be available at: [${siteUrl}](${siteUrl})\n\nNote: It may take a few minutes for the site to build and deploy the changes.`
+            });
+            await github.rest.issues.update({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed'
+            });
