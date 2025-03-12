@@ -23,6 +23,11 @@ url: "https://www.reboot.chat" # the base hostname & protocol for your site, e.g
 twitter_username: 
 github_username:  
 
+collections:
+  pages:
+    output: true
+    permalink: /:path/
+
 github: [metadata]
 
 # Build settings
