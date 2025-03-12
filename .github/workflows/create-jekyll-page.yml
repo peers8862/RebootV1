@@ -81,10 +81,13 @@ jobs:
           # Create directory if needed
           mkdir -p $(dirname "$FILENAME")
           
+          # Properly escape the page title for YAML
+          YAML_ESCAPED_TITLE=$(echo "$PAGE_TITLE" | sed 's/"/\\"/g')
+          
           # Output variables for later use
           echo "filename=$FILENAME" >> $GITHUB_ENV
           echo "url_path=$URL_PATH" >> $GITHUB_ENV
-          echo "page_title=$PAGE_TITLE" >> $GITHUB_ENV
+          echo "page_title=$YAML_ESCAPED_TITLE" >> $GITHUB_ENV
           echo "page_layout=$PAGE_LAYOUT" >> $GITHUB_ENV
           
           # Save content to a separate file to avoid shell escaping issues
@@ -92,7 +95,7 @@ jobs:
       
       - name: Create page file
         run: |
-          # Create the frontmatter
+          # Create the frontmatter with proper YAML escaping
           cat > "${{ env.filename }}" << EOF
 ---
 layout: ${{ env.page_layout }}
